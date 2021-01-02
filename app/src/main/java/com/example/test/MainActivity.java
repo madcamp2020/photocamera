@@ -15,10 +15,17 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.util.Log;
+import android.util.TypedValue;
+import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.Toast;
 
+import com.bumptech.glide.Glide;
+import com.bumptech.glide.RequestManager;
+import com.bumptech.glide.request.RequestOptions;
 import com.gun0912.tedpermission.PermissionListener;
 import com.gun0912.tedpermission.TedPermission;
 
@@ -27,17 +34,22 @@ import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
+
+import gun0912.tedbottompicker.TedBottomPicker;
 
 import static java.security.AccessController.getContext;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final int PICK_FROM_ALBUM = 1;
-    private static final int PICK_FROM_CAMERA = 2;
-    private static final String TAG = "blackJin";
-    private File tempFile;
+    private static final String TAG = "blackjin";
 
     private Boolean isPermission = true;
+
+    private static final int PICK_FROM_ALBUM = 1;
+    private static final int PICK_FROM_CAMERA = 2;
+
+    private File tempFile;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -66,48 +78,13 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
-    private void tedPermission() {
-
-        PermissionListener permissionListener;
-        permissionListener = new PermissionListener() {
-            @Override
-            public void onPermissionGranted() {
-                // 권한 요청 성공
-
-            }
-
-            @Override
-            public void onPermissionDenied(ArrayList<String> deniedPermissions) {
-                // 권한 요청 실패
-            }
-        };
-
-        TedPermission.with(this)
-                .setPermissionListener(permissionListener)
-                .setRationaleMessage(getResources().getString(R.string.permission_2))
-                .setDeniedMessage(getResources().getString(R.string.permission_1))
-                .setPermissions(Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.CAMERA)
-                .check();
-
-    }
-
-    private void goToAlbum() {
-
-        Intent intent = new Intent(Intent.ACTION_PICK);
-        intent.setType(MediaStore.Images.Media.CONTENT_TYPE);
-        startActivityForResult(intent, PICK_FROM_ALBUM);
-    }
-
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-
         super.onActivityResult(requestCode, resultCode, data);
-
         if (resultCode != Activity.RESULT_OK) {
-
             Toast.makeText(this, "취소 되었습니다.", Toast.LENGTH_SHORT).show();
 
-            if(tempFile != null) {
+            if (tempFile != null) {
                 if (tempFile.exists()) {
                     if (tempFile.delete()) {
                         Log.e(TAG, tempFile.getAbsolutePath() + " 삭제 성공");
@@ -118,9 +95,11 @@ public class MainActivity extends AppCompatActivity {
 
             return;
         }
+
         if (requestCode == PICK_FROM_ALBUM) {
 
             Uri photoUri = data.getData();
+            Log.d(TAG, "PICK_FROM_ALBUM photoUri : " + photoUri);
 
             Cursor cursor = null;
 
@@ -142,6 +121,8 @@ public class MainActivity extends AppCompatActivity {
 
                 tempFile = new File(cursor.getString(column_index));
 
+                Log.d(TAG, "tempFile Uri : " + Uri.fromFile(tempFile));
+
             } finally {
                 if (cursor != null) {
                     cursor.close();
@@ -150,22 +131,27 @@ public class MainActivity extends AppCompatActivity {
 
             setImage();
 
-        }else if(requestCode == PICK_FROM_CAMERA){
+        } else if (requestCode == PICK_FROM_CAMERA) {
+
             setImage();
+
         }
     }
 
-    private void setImage() {
+    /**
+     *  앨범에서 이미지 가져오기
+     */
+    private void goToAlbum() {
 
-        ImageView imageView = findViewById(R.id.imageView);
-
-        BitmapFactory.Options options = new BitmapFactory.Options();
-        Bitmap originalBm = BitmapFactory.decodeFile(tempFile.getAbsolutePath(), options);
-
-        imageView.setImageBitmap(originalBm);
-
+        Intent intent = new Intent(Intent.ACTION_PICK);
+        intent.setType(MediaStore.Images.Media.CONTENT_TYPE);
+        startActivityForResult(intent, PICK_FROM_ALBUM);
     }
 
+
+    /**
+     *  카메라에서 이미지 가져오기
+     */
     private void takePhoto() {
 
         Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
@@ -179,16 +165,26 @@ public class MainActivity extends AppCompatActivity {
         }
         if (tempFile != null) {
 
-            Uri photoUri = FileProvider.getUriForFile(getApplicationContext(),"com.example.test.provider", tempFile);
-            intent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri);
-            startActivityForResult(intent, PICK_FROM_CAMERA);
-        }else{
-            Uri photoUri = FileProvider.getUriForFile(getApplicationContext(),"com.example.test.provider", tempFile);
-            intent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri);
-            startActivityForResult(intent, PICK_FROM_CAMERA);
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+
+                Uri photoUri = FileProvider.getUriForFile(this,
+                        "com.example.test.provider", tempFile);
+                intent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri);
+                startActivityForResult(intent, PICK_FROM_CAMERA);
+
+            } else {
+
+                Uri photoUri = Uri.fromFile(tempFile);
+                intent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri);
+                startActivityForResult(intent, PICK_FROM_CAMERA);
+
+            }
         }
     }
 
+    /**
+     *  폴더 및 파일 만들기
+     */
     private File createImageFile() throws IOException {
 
         // 이미지 파일 이름 ( blackJin_{시간}_ )
@@ -199,11 +195,63 @@ public class MainActivity extends AppCompatActivity {
         File storageDir = new File(Environment.getExternalStorageDirectory() + "/blackJin/");
         if (!storageDir.exists()) storageDir.mkdirs();
 
-        // 빈 파일 생성
+        // 파일 생성
         File image = File.createTempFile(imageFileName, ".jpg", storageDir);
+        Log.d(TAG, "createImageFile : " + image.getAbsolutePath());
 
         return image;
     }
 
+    /**
+     *  tempFile 을 bitmap 으로 변환 후 ImageView 에 설정한다.
+     */
+    private void setImage() {
+
+        ImageView imageView = findViewById(R.id.imageView);
+
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        Bitmap originalBm = BitmapFactory.decodeFile(tempFile.getAbsolutePath(), options);
+        Log.d(TAG, "setImage : " + tempFile.getAbsolutePath());
+
+        imageView.setImageBitmap(originalBm);
+
+        /**
+         *  tempFile 사용 후 null 처리를 해줘야 합니다.
+         *  (resultCode != RESULT_OK) 일 때 tempFile 을 삭제하기 때문에
+         *  기존에 데이터가 남아 있게 되면 원치 않은 삭제가 이뤄집니다.
+         */
+        tempFile = null;
+
+    }
+
+    /**
+     *  권한 설정
+     */
+    private void tedPermission() {
+
+        PermissionListener permissionListener = new PermissionListener() {
+            @Override
+            public void onPermissionGranted() {
+                // 권한 요청 성공
+                isPermission = true;
+
+            }
+
+            @Override
+            public void onPermissionDenied(ArrayList<String> deniedPermissions) {
+                // 권한 요청 실패
+                isPermission = false;
+
+            }
+        };
+
+        TedPermission.with(this)
+                .setPermissionListener(permissionListener)
+                .setRationaleMessage(getResources().getString(R.string.permission_2))
+                .setDeniedMessage(getResources().getString(R.string.permission_1))
+                .setPermissions(Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.CAMERA)
+                .check();
+
+    }
 
 }
